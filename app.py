@@ -628,115 +628,114 @@ def main():
             required_columns = ['date', 'amount', 'description']
             if all(col in df.columns for col in required_columns):
                 if st.button("🚀 Create My Financial Reflection", type="primary"):
-                
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                # Step 1: Categorize
-                status_text.text("🏷️ Categorizing transactions mindfully...")
-                progress_bar.progress(20)
-                df = dashboard.auto_categorize(df, use_ai=use_ai)
-                
-                # Step 2: Investment analysis
-                status_text.text("💎 Identifying investment contributions...")
-                progress_bar.progress(40)
-                investment_df = df[df['category'] == 'Investments'].copy()
-                
-                # Calculate investment progress
-                current_year = datetime.now().year
-                ytd_investments = investment_df[
-                    investment_df['date'].dt.year == current_year
-                ]['amount'].abs().sum()
-                
-                # Simple goal progress calculation
-                goals_count = len(dashboard.investment_goals)
-                investment_per_goal = ytd_investments / goals_count if goals_count > 0 else 0
-                
-                investment_progress = {}
-                for goal_name, goal_data in dashboard.investment_goals.items():
-                    current = investment_per_goal
-                    progress_pct = min(100, (current / goal_data['target']) * 100) if goal_data['target'] > 0 else 0
-                    investment_progress[goal_name] = {
-                        'target': goal_data['target'],
-                        'current': current,
-                        'progress_pct': progress_pct,
-                        'remaining': goal_data['target'] - current
-                    }
-                
-                # Step 3: Generate summary
-                status_text.text("📝 Crafting your financial reflection...")
-                progress_bar.progress(60)
-                summary = dashboard.generate_summary(df, investment_progress)
-                
-                # Step 4: Create charts
-                status_text.text("🎨 Creating beautiful visualizations...")
-                progress_bar.progress(80)
-                charts = dashboard.create_plotly_charts(df, investment_progress)
-                
-                # Step 5: Display results
-                status_text.text("✨ Preparing your reflection...")
-                progress_bar.progress(100)
-                
-                # Clear progress indicators
-                progress_bar.empty()
-                status_text.empty()
-                
-                # Display results
-                st.markdown("---")
-                st.markdown(summary)
-                
-                # Key metrics
-                st.markdown("### 📊 Key Insights")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                total_income = df[df['amount'] > 0]['amount'].sum()
-                total_expenses = abs(df[df['amount'] < 0]['amount'].sum())
-                net_flow = total_income - total_expenses
-                total_invested = sum(goal['current'] for goal in investment_progress.values())
-                
-                with col1:
-                    st.metric("Net Cash Flow", f"${net_flow:,.2f}")
-                with col2:
-                    st.metric("Total Income", f"${total_income:,.2f}")
-                with col3:
-                    st.metric("Total Expenses", f"${total_expenses:,.2f}")
-                with col4:
-                    st.metric("Invested", f"${total_invested:,.2f}")
-                
-                # Display charts
-                st.markdown("### 🎨 Visual Insights")
-                
-                for chart_name, chart in charts.items():
-                    st.plotly_chart(chart, use_container_width=True)
-                
-                # Transaction details
-                with st.expander("📋 Categorized Transactions"):
-                    st.dataframe(df[['date', 'description', 'amount', 'category']])
-                
-                # Investment progress table
-                if investment_progress:
-                    st.markdown("### 🎯 Investment Goal Progress")
                     
-                    progress_df = pd.DataFrame([
-                        {
-                            'Goal': goal_name,
-                            'Target': f"${data['target']:,.0f}",
-                            'Current': f"${data['current']:,.0f}",
-                            'Progress': f"{data['progress_pct']:.1f}%",
-                            'Remaining': f"${data['remaining']:,.0f}"
+                    # Progress tracking
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # Step 1: Categorize
+                    status_text.text("🏷️ Categorizing transactions mindfully...")
+                    progress_bar.progress(20)
+                    df = dashboard.auto_categorize(df, use_ai=use_ai)
+                    # Step 2: Investment analysis
+                    status_text.text("💎 Identifying investment contributions...")
+                    progress_bar.progress(40)
+                    investment_df = df[df['category'] == 'Investments'].copy()
+                    
+                    # Calculate investment progress
+                    current_year = datetime.now().year
+                    ytd_investments = investment_df[
+                        investment_df['date'].dt.year == current_year
+                    ]['amount'].abs().sum()
+                    
+                    # Simple goal progress calculation
+                    goals_count = len(dashboard.investment_goals)
+                    investment_per_goal = ytd_investments / goals_count if goals_count > 0 else 0
+                    
+                    investment_progress = {}
+                    for goal_name, goal_data in dashboard.investment_goals.items():
+                        current = investment_per_goal
+                        progress_pct = min(100, (current / goal_data['target']) * 100) if goal_data['target'] > 0 else 0
+                        investment_progress[goal_name] = {
+                            'target': goal_data['target'],
+                            'current': current,
+                            'progress_pct': progress_pct,
+                            'remaining': goal_data['target'] - current
                         }
-                        for goal_name, data in investment_progress.items()
-                    ])
                     
-                    st.dataframe(progress_df, use_container_width=True)
-                
-                # Notion integration
-                if send_to_notion and dashboard.notion:
-                    with st.spinner("🚀 Sending to Notion..."):
-                        try:
-                            # Create markdown content
-                            markdown_content = f"""
+                    # Step 3: Generate summary
+                    status_text.text("📝 Crafting your financial reflection...")
+                    progress_bar.progress(60)
+                    summary = dashboard.generate_summary(df, investment_progress)
+                    
+                    # Step 4: Create charts
+                    status_text.text("🎨 Creating beautiful visualizations...")
+                    progress_bar.progress(80)
+                    charts = dashboard.create_plotly_charts(df, investment_progress)
+                    
+                    # Step 5: Display results
+                    status_text.text("✨ Preparing your reflection...")
+                    progress_bar.progress(100)
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    # Display results
+                    st.markdown("---")
+                    st.markdown(summary)
+                    
+                    # Key metrics
+                    st.markdown("### 📊 Key Insights")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    total_income = df[df['amount'] > 0]['amount'].sum()
+                    total_expenses = abs(df[df['amount'] < 0]['amount'].sum())
+                    net_flow = total_income - total_expenses
+                    total_invested = sum(goal['current'] for goal in investment_progress.values())
+                    
+                    with col1:
+                        st.metric("Net Cash Flow", f"${net_flow:,.2f}")
+                    with col2:
+                        st.metric("Total Income", f"${total_income:,.2f}")
+                    with col3:
+                        st.metric("Total Expenses", f"${total_expenses:,.2f}")
+                    with col4:
+                        st.metric("Invested", f"${total_invested:,.2f}")
+                    
+                    # Display charts
+                    st.markdown("### 🎨 Visual Insights")
+                    
+                    for chart_name, chart in charts.items():
+                        st.plotly_chart(chart, use_container_width=True)
+                    
+                    # Transaction details
+                    with st.expander("📋 Categorized Transactions"):
+                        st.dataframe(df[['date', 'description', 'amount', 'category']])
+                    
+                    # Investment progress table
+                    if investment_progress:
+                        st.markdown("### 🎯 Investment Goal Progress")
+                        
+                        progress_df = pd.DataFrame([
+                            {
+                                'Goal': goal_name,
+                                'Target': f"${data['target']:,.0f}",
+                                'Current': f"${data['current']:,.0f}",
+                                'Progress': f"{data['progress_pct']:.1f}%",
+                                'Remaining': f"${data['remaining']:,.0f}"
+                            }
+                            for goal_name, data in investment_progress.items()
+                        ])
+                        
+                        st.dataframe(progress_df, use_container_width=True)
+                    
+                    # Notion integration
+                    if send_to_notion and dashboard.notion:
+                        with st.spinner("🚀 Sending to Notion..."):
+                            try:
+                                # Create markdown content
+                                markdown_content = f"""
 # 🌱 Financial Reflection Report
 *Generated on {datetime.now().strftime('%B %d, %Y')}*
 
@@ -750,15 +749,15 @@ def main():
 
 ## 🎯 Investment Progress
 """
-                            for goal_name, data in investment_progress.items():
-                                markdown_content += f"- **{goal_name}:** {data['progress_pct']:.1f}% (${data['current']:,.0f} / ${data['target']:,.0f})\n"
-                            
-                            st.success("✅ Report sent to Notion successfully!")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error sending to Notion: {str(e)}")
-                
-                st.balloons()
+                                for goal_name, data in investment_progress.items():
+                                    markdown_content += f"- **{goal_name}:** {data['progress_pct']:.1f}% (${data['current']:,.0f} / ${data['target']:,.0f})\n"
+                                
+                                st.success("✅ Report sent to Notion successfully!")
+                                
+                            except Exception as e:
+                                st.error(f"❌ Error sending to Notion: {str(e)}")
+                    
+                    st.balloons()
             else:
                 # Show what's missing and how to fix it
                 missing = [col for col in required_columns if col not in df.columns]
