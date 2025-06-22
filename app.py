@@ -292,6 +292,8 @@ class PeacefulFinanceDashboard:
         all_data = []
         
         for uploaded_file in uploaded_files:
+            st.info(f"🔄 Processing: {uploaded_file.name}")
+            
             try:
                 # Save uploaded file temporarily
                 with tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name) as tmp_file:
@@ -300,14 +302,29 @@ class PeacefulFinanceDashboard:
                 
                 # Process based on file type
                 if uploaded_file.name.endswith('.csv'):
+                    st.info("📊 Reading as CSV file...")
                     df = pd.read_csv(tmp_file_path)
                 elif uploaded_file.name.endswith(('.xls', '.xlsx')):
+                    st.info("📊 Reading as Excel file...")
                     df = pd.read_excel(tmp_file_path)
                 elif uploaded_file.name.endswith('.pdf'):
+                    st.info("📄 Reading as PDF file...")
                     df = self._parse_pdf(tmp_file_path)
                 else:
                     st.warning(f"Unsupported file format: {uploaded_file.name}")
                     continue
+                
+                if df.empty:
+                    st.error(f"❌ No data extracted from {uploaded_file.name}")
+                    continue
+                
+                st.success(f"✅ Raw data extracted: {len(df)} rows, {len(df.columns)} columns")
+                st.info(f"📋 Raw columns: {list(df.columns)}")
+                
+                # Show sample of raw data
+                if len(df) > 0:
+                    st.info("🔍 Sample of raw data:")
+                    st.dataframe(df.head(3))
                 
                 df = self._standardize_columns(df)
                 df['source_file'] = uploaded_file.name
@@ -318,100 +335,179 @@ class PeacefulFinanceDashboard:
                 
             except Exception as e:
                 st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                st.error(f"Error details: {type(e).__name__}")
                 continue
         
         if not all_data:
+            st.error("❌ No valid data found in any uploaded files")
             return pd.DataFrame()
         
+        st.success(f"🎉 Successfully processed {len(all_data)} files")
         combined_df = pd.concat(all_data, ignore_index=True)
+        
+        st.info(f"📊 Combined data: {len(combined_df)} total transactions")
         return self._clean_data(combined_df)
 
     def _parse_pdf(self, file_path: str) -> pd.DataFrame:
-        """Extract transaction data from PDF bank statements with enhanced parsing."""
+        """Extract transaction data from PDF bank statements with enhanced parsing for credit union statements."""
         transactions = []
+        
+        st.info("🔍 Analyzing your PDF structure...")
         
         try:
             # Try pdfplumber first - better for structured tables
             with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
+                for page_num, page in enumerate(pdf.pages):
+                    st.info(f"📄 Processing page {page_num + 1}...")
+                    
                     # Extract tables first
                     tables = page.extract_tables()
-                    for table in tables:
-                        if table and len(table) > 1:
-                            # Find the header row (might not be the first row)
-                            header_row = None
-                            data_start = 0
-                            
-                            for i, row in enumerate(table[:5]):  # Check first 5 rows for headers
-                                if any(keyword in str(cell).lower() for cell in row if cell 
-                                     for keyword in ['date', 'transaction', 'amount', 'description', 'balance']):
-                                    header_row = row
-                                    data_start = i + 1
-                                    break
-                            
-                            if header_row:
-                                # Clean header names
-                                headers = [str(cell).strip() if cell else f"col_{i}" for i, cell in enumerate(header_row)]
-                                
-                                # Process data rows
-                                for row in table[data_start:]:
-                                    if row and len(row) >= len(headers):
-                                        # Create transaction record
-                                        transaction = {}
-                                        for i, (header, value) in enumerate(zip(headers, row)):
-                                            if value and str(value).strip():
-                                                transaction[header] = str(value).strip()
-                                        
-                                        # Only add if we have essential data
-                                        if len(transaction) >= 3:
-                                            transactions.append(transaction)
                     
-                    # If no tables found, try text extraction for unstructured data
-                    if not transactions:
+                    if tables:
+                        st.info(f"Found {len(tables)} tables on page {page_num + 1}")
+                        
+                        for table_num, table in enumerate(tables):
+                            if table and len(table) > 1:
+                                st.info(f"Processing table {table_num + 1} with {len(table)} rows")
+                                
+                                # More flexible header detection for credit union statements
+                                header_row = None
+                                data_start = 0
+                                
+                                # Look through more rows to find headers
+                                for i, row in enumerate(table[:10]):  # Check first 10 rows
+                                    if row and any(cell for cell in row):
+                                        row_text = ' '.join([str(cell).lower() if cell else '' for cell in row])
+                                        # Look for credit union specific patterns
+                                        if any(keyword in row_text for keyword in [
+                                            'trans date', 'transaction', 'amount', 'description', 
+                                            'balance', 'date', 'memo', 'trans.', 'trans '
+                                        ]):
+                                            header_row = row
+                                            data_start = i + 1
+                                            st.success(f"✅ Found headers in row {i + 1}: {[str(cell)[:20] if cell else 'None' for cell in row]}")
+                                            break
+                                
+                                if header_row:
+                                    # Clean header names and create mapping
+                                    headers = []
+                                    for j, cell in enumerate(header_row):
+                                        if cell and str(cell).strip():
+                                            clean_header = str(cell).strip().lower()
+                                            headers.append(clean_header)
+                                        else:
+                                            headers.append(f"col_{j}")
+                                    
+                                    st.info(f"📋 Detected columns: {headers}")
+                                    
+                                    # Process data rows
+                                    valid_transactions = 0
+                                    for row_idx, row in enumerate(table[data_start:], start=data_start):
+                                        if row and len(row) >= len(headers):
+                                            # Create transaction record
+                                            transaction = {}
+                                            has_meaningful_data = False
+                                            
+                                            for header, value in zip(headers, row):
+                                                if value and str(value).strip() and str(value).strip() != '':
+                                                    clean_value = str(value).strip()
+                                                    transaction[header] = clean_value
+                                                    # Check if this looks like meaningful transaction data
+                                                    if any(keyword in clean_value.lower() for keyword in [
+                                                        'amazon', 'target', 'paypal', 'external', 'pos', 'deposit',
+                                                        'may', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+                                                    ]) or any(char.isdigit() for char in clean_value):
+                                                        has_meaningful_data = True
+                                            
+                                            # Only add if we have meaningful transaction data and at least 3 fields
+                                            if len(transaction) >= 3 and has_meaningful_data:
+                                                transaction['page'] = page_num + 1
+                                                transaction['table'] = table_num + 1
+                                                transaction['row'] = row_idx + 1
+                                                transactions.append(transaction)
+                                                valid_transactions += 1
+                                    
+                                    st.info(f"✅ Extracted {valid_transactions} transactions from table {table_num + 1}")
+                                else:
+                                    st.warning(f"⚠️ Could not find valid headers in table {table_num + 1}")
+                    else:
+                        # If no tables found, try text extraction
+                        st.info("No tables found, trying text extraction...")
                         text = page.extract_text()
+                        
                         if text:
                             lines = text.split('\n')
-                            for line in lines:
-                                # Look for transaction-like patterns
-                                if any(keyword in line.lower() for keyword in ['amazon', 'target', 'starbucks', 'uber', 'paypal']):
-                                    # Try to parse as a transaction line
+                            for line_num, line in enumerate(lines):
+                                # Look for transaction patterns in text
+                                line_lower = line.lower()
+                                if any(keyword in line_lower for keyword in [
+                                    'amazon', 'target', 'paypal', 'external wd', 'pos wd', 'deposit'
+                                ]) and any(char.isdigit() for char in line):
+                                    # Try to extract transaction info from the line
                                     parts = line.split()
                                     if len(parts) >= 3:
                                         transaction = {
+                                            'raw_line': line,
                                             'description': line,
-                                            'raw_line': line
+                                            'page': page_num + 1,
+                                            'line': line_num + 1
                                         }
                                         transactions.append(transaction)
-                                        
+                        
         except Exception as e:
-            st.warning(f"pdfplumber failed: {str(e)}. Trying PyMuPDF...")
+            st.error(f"pdfplumber failed: {str(e)}")
+            st.info("Trying alternative PDF parsing method...")
         
-        # Fallback to PyMuPDF if pdfplumber didn't work well
+        # Enhanced fallback to PyMuPDF
         if not transactions:
             try:
                 doc = fitz.open(file_path)
-                for page in doc:
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    
                     # Try to find tables
                     tables = page.find_tables()
-                    for table in tables:
-                        try:
-                            df = table.to_pandas()
-                            if not df.empty and len(df.columns) >= 3:
-                                transactions.extend(df.to_dict('records'))
-                        except:
-                            continue
+                    if tables:
+                        for table in tables:
+                            try:
+                                df = table.to_pandas()
+                                if not df.empty and len(df.columns) >= 3:
+                                    for _, row in df.iterrows():
+                                        transaction = row.to_dict()
+                                        transaction['page'] = page_num + 1
+                                        transaction['source'] = 'pymupdf'
+                                        transactions.append(transaction)
+                            except Exception as e:
+                                st.warning(f"Error processing table with PyMuPDF: {str(e)}")
+                                continue
                     
-                    # If no tables, extract text and look for patterns
+                    # Text extraction as final fallback
                     if not transactions:
                         text = page.get_text()
                         lines = text.split('\n')
                         for line in lines:
-                            if any(keyword in line.lower() for keyword in ['amazon', 'target', 'starbucks', 'uber', 'paypal']):
-                                transactions.append({'description': line, 'raw_line': line})
+                            if any(keyword in line.lower() for keyword in [
+                                'amazon', 'target', 'paypal', 'external', 'pos', 'deposit'
+                            ]) and any(char.isdigit() for char in line):
+                                transactions.append({
+                                    'description': line,
+                                    'raw_line': line,
+                                    'page': page_num + 1,
+                                    'source': 'text_extraction'
+                                })
                                 
                 doc.close()
             except Exception as e:
-                st.warning(f"PyMuPDF also failed: {str(e)}")
+                st.error(f"PyMuPDF also failed: {str(e)}")
+        
+        st.info(f"📊 Total transactions found: {len(transactions)}")
+        
+        if transactions:
+            # Show sample of what we found
+            st.info("🔍 Sample of extracted data:")
+            sample_size = min(3, len(transactions))
+            for i, trans in enumerate(transactions[:sample_size]):
+                st.write(f"Transaction {i+1}: {trans}")
         
         return pd.DataFrame(transactions) if transactions else pd.DataFrame()
 
@@ -426,17 +522,20 @@ class PeacefulFinanceDashboard:
         # Clean column names
         df.columns = df.columns.str.lower().str.strip()
         
-        # Common column mappings (enhanced for bank statements)
+        # Common column mappings (enhanced for credit union statements)
         column_mapping = {
             'transaction date': 'date',
             'trans date': 'date',
             'trans. date': 'date',
+            'trans .date': 'date',
             'posting date': 'date',
             'post date': 'date',
             'effective date': 'date',
+            'date': 'date',
             'transaction description': 'description',
             'trans description': 'description',
             'trans. description': 'description',
+            'description': 'description',
             'merchant': 'description',
             'memo': 'description',
             'payee': 'description',
@@ -447,36 +546,51 @@ class PeacefulFinanceDashboard:
             'credit': 'amount',
             'transaction amount': 'amount',
             'trans amount': 'amount',
-            'transaction': 'amount',  # Common in bank statements
+            'transaction': 'amount',  # Common in credit union statements
+            'amount': 'amount',
             'withdrawal': 'amount',
             'deposit': 'amount',
             'charge': 'amount',
             'payment': 'amount'
         }
         
+        st.info(f"🔍 Original columns found: {list(df.columns)}")
+        
         # Apply mappings
+        columns_mapped = []
         for old_name, new_name in column_mapping.items():
             if old_name in df.columns:
                 df = df.rename(columns={old_name: new_name})
+                columns_mapped.append(f"{old_name} → {new_name}")
+        
+        if columns_mapped:
+            st.success(f"✅ Mapped columns: {', '.join(columns_mapped)}")
+        
+        st.info(f"📋 Columns after mapping: {list(df.columns)}")
         
         # Auto-detect columns if standard names not found
         if 'date' not in df.columns:
+            st.warning("🔍 Date column not found, attempting auto-detection...")
             date_cols = [col for col in df.columns if 'date' in col.lower()]
             if date_cols:
                 df = df.rename(columns={date_cols[0]: 'date'})
+                st.success(f"✅ Mapped '{date_cols[0]}' to 'date'")
             else:
                 # Try to find columns that might contain dates
                 for col in df.columns:
-                    if any(word in col.lower() for word in ['time', 'when', 'posted']):
+                    if any(word in col.lower() for word in ['time', 'when', 'posted', 'trans']):
                         df = df.rename(columns={col: 'date'})
+                        st.success(f"✅ Mapped '{col}' to 'date' (keyword match)")
                         break
         
         if 'description' not in df.columns:
+            st.warning("🔍 Description column not found, attempting auto-detection...")
             desc_cols = [col for col in df.columns if any(word in col.lower() 
                         for word in ['desc', 'merchant', 'memo', 'payee', 'reference', 'details', 
                                    'name', 'vendor', 'company', 'transaction', 'category', 'note'])]
             if desc_cols:
                 df = df.rename(columns={desc_cols[0]: 'description'})
+                st.success(f"✅ Mapped '{desc_cols[0]}' to 'description'")
             else:
                 # If still no description column found, use the longest text column
                 text_columns = []
@@ -493,12 +607,23 @@ class PeacefulFinanceDashboard:
                     # Use the column with longest average text as description
                     best_col = max(text_columns, key=lambda x: x[1])[0]
                     df = df.rename(columns={best_col: 'description'})
+                    st.success(f"✅ Mapped '{best_col}' to 'description' (longest text column)")
         
         if 'amount' not in df.columns:
+            st.warning("🔍 Amount column not found, attempting auto-detection...")
             amount_cols = [col for col in df.columns if any(word in col.lower() 
-                          for word in ['amount', 'debit', 'credit', 'value', 'withdrawal', 'deposit'])]
+                          for word in ['amount', 'debit', 'credit', 'value', 'withdrawal', 'deposit', 'transaction', 'balance'])]
             if amount_cols:
-                df = df.rename(columns={amount_cols[0]: 'amount'})
+                # Prefer 'transaction' column for credit union statements
+                transaction_cols = [col for col in amount_cols if 'transaction' in col.lower()]
+                if transaction_cols:
+                    df = df.rename(columns={transaction_cols[0]: 'amount'})
+                    st.success(f"✅ Mapped '{transaction_cols[0]}' to 'amount' (transaction column)")
+                else:
+                    df = df.rename(columns={amount_cols[0]: 'amount'})
+                    st.success(f"✅ Mapped '{amount_cols[0]}' to 'amount'")
+        
+        st.info(f"🎯 Final columns: {list(df.columns)}")
         
         # Handle debit/credit columns separately if they exist
         if 'debit' in df.columns and 'credit' in df.columns and 'amount' not in df.columns:
