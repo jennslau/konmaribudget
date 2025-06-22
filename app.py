@@ -169,6 +169,13 @@ class PeacefulFinanceDashboard:
 
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names and detect date, description, amount columns."""
+        if df.empty:
+            return df
+            
+        # Store original columns for debugging
+        original_columns = df.columns.tolist()
+        
+        # Clean column names
         df.columns = df.columns.str.lower().str.strip()
         
         # Common column mappings
@@ -176,14 +183,18 @@ class PeacefulFinanceDashboard:
             'transaction date': 'date',
             'trans date': 'date',
             'posting date': 'date',
+            'post date': 'date',
             'transaction description': 'description',
             'trans description': 'description',
             'merchant': 'description',
             'memo': 'description',
+            'payee': 'description',
             'debit': 'amount',
             'credit': 'amount',
             'transaction amount': 'amount',
-            'trans amount': 'amount'
+            'trans amount': 'amount',
+            'withdrawal': 'amount',
+            'deposit': 'amount'
         }
         
         # Apply mappings
@@ -196,18 +207,29 @@ class PeacefulFinanceDashboard:
             date_cols = [col for col in df.columns if 'date' in col.lower()]
             if date_cols:
                 df = df.rename(columns={date_cols[0]: 'date'})
+            else:
+                # Try to find columns that might contain dates
+                for col in df.columns:
+                    if any(word in col.lower() for word in ['time', 'when', 'posted']):
+                        df = df.rename(columns={col: 'date'})
+                        break
         
         if 'description' not in df.columns:
             desc_cols = [col for col in df.columns if any(word in col.lower() 
-                        for word in ['desc', 'merchant', 'memo', 'payee'])]
+                        for word in ['desc', 'merchant', 'memo', 'payee', 'reference', 'details'])]
             if desc_cols:
                 df = df.rename(columns={desc_cols[0]: 'description'})
         
         if 'amount' not in df.columns:
             amount_cols = [col for col in df.columns if any(word in col.lower() 
-                          for word in ['amount', 'debit', 'credit', 'value'])]
+                          for word in ['amount', 'debit', 'credit', 'value', 'withdrawal', 'deposit'])]
             if amount_cols:
                 df = df.rename(columns={amount_cols[0]: 'amount'})
+        
+        # Handle debit/credit columns separately if they exist
+        if 'debit' in df.columns and 'credit' in df.columns and 'amount' not in df.columns:
+            # Combine debit and credit into amount (debit negative, credit positive)
+            df['amount'] = df['credit'].fillna(0) - df['debit'].fillna(0)
         
         return df
 
@@ -215,6 +237,21 @@ class PeacefulFinanceDashboard:
         """Clean and standardize the transaction data."""
         if df.empty:
             return df
+        
+        # Check which required columns are missing
+        required_columns = ['date', 'amount', 'description']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            st.error(f"❌ Could not find required columns: {', '.join(missing_columns)}")
+            st.info(f"📋 Found these columns in your file: {', '.join(df.columns.tolist())}")
+            st.warning("""
+            🔧 **How to fix this:**
+            - Make sure your file has columns for date, transaction description, and amount
+            - Common column names that work: 'Date', 'Description', 'Amount', 'Transaction Date', 'Memo', 'Debit', 'Credit'
+            - Try renaming your columns or check if the file format is correct
+            """)
+            return pd.DataFrame()  # Return empty DataFrame
         
         # Parse dates
         if 'date' in df.columns:
@@ -229,11 +266,13 @@ class PeacefulFinanceDashboard:
         if 'description' in df.columns:
             df['description'] = df['description'].astype(str).str.strip()
         
-        # Remove rows with missing essential data
-        df = df.dropna(subset=['date', 'amount', 'description'])
+        # Remove rows with missing essential data (only if all required columns exist)
+        if all(col in df.columns for col in required_columns):
+            df = df.dropna(subset=required_columns)
         
-        # Sort by date
-        df = df.sort_values('date').reset_index(drop=True)
+        # Sort by date if date column exists and has valid dates
+        if 'date' in df.columns and not df['date'].isna().all():
+            df = df.sort_values('date').reset_index(drop=True)
         
         return df
 
