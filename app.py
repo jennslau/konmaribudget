@@ -216,9 +216,26 @@ class PeacefulFinanceDashboard:
         
         if 'description' not in df.columns:
             desc_cols = [col for col in df.columns if any(word in col.lower() 
-                        for word in ['desc', 'merchant', 'memo', 'payee', 'reference', 'details'])]
+                        for word in ['desc', 'merchant', 'memo', 'payee', 'reference', 'details', 
+                                   'name', 'vendor', 'company', 'transaction', 'category', 'note'])]
             if desc_cols:
                 df = df.rename(columns={desc_cols[0]: 'description'})
+            else:
+                # If still no description column found, use the longest text column
+                text_columns = []
+                for col in df.columns:
+                    if col not in ['date', 'amount'] and df[col].dtype == 'object':
+                        # Check if this column has text-like data
+                        sample_values = df[col].dropna().head()
+                        if len(sample_values) > 0:
+                            avg_length = sample_values.astype(str).str.len().mean()
+                            if avg_length > 3:  # Likely text content
+                                text_columns.append((col, avg_length))
+                
+                if text_columns:
+                    # Use the column with longest average text as description
+                    best_col = max(text_columns, key=lambda x: x[1])[0]
+                    df = df.rename(columns={best_col: 'description'})
         
         if 'amount' not in df.columns:
             amount_cols = [col for col in df.columns if any(word in col.lower() 
@@ -558,12 +575,59 @@ def main():
         if not df.empty:
             st.success(f"✨ Loaded {len(df)} transactions from {len(uploaded_files)} files")
             
+            # Check if we need manual column mapping
+            required_columns = ['date', 'amount', 'description']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                st.warning(f"🔧 Need help mapping columns: {', '.join(missing_columns)}")
+                
+                # Show manual column selector
+                with st.expander("🎯 Manual Column Mapping"):
+                    st.write("**Available columns in your file:**")
+                    st.write(df.columns.tolist())
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if 'date' not in df.columns:
+                            date_col = st.selectbox("Select DATE column:", 
+                                                   [''] + df.columns.tolist(), 
+                                                   key="date_col")
+                            if date_col:
+                                df = df.rename(columns={date_col: 'date'})
+                    
+                    with col2:
+                        if 'amount' not in df.columns:
+                            amount_col = st.selectbox("Select AMOUNT column:", 
+                                                     [''] + df.columns.tolist(), 
+                                                     key="amount_col")
+                            if amount_col:
+                                df = df.rename(columns={amount_col: 'amount'})
+                    
+                    with col3:
+                        if 'description' not in df.columns:
+                            desc_col = st.selectbox("Select DESCRIPTION column:", 
+                                                   [''] + df.columns.tolist(), 
+                                                   key="desc_col")
+                            if desc_col:
+                                df = df.rename(columns={desc_col: 'description'})
+                    
+                    # Check if mapping is complete
+                    if all(col in df.columns for col in required_columns):
+                        st.success("✅ All columns mapped successfully!")
+                    else:
+                        still_missing = [col for col in required_columns if col not in df.columns]
+                        st.error(f"Still missing: {', '.join(still_missing)}")
+            
             # Show data preview
             with st.expander("👀 Preview Your Data"):
                 st.dataframe(df.head(10))
             
-            # Run analysis button
-            if st.button("🚀 Create My Financial Reflection", type="primary"):
+            # Run analysis button - only show if all required columns exist
+            required_columns = ['date', 'amount', 'description']
+            if all(col in df.columns for col in required_columns):
+                if st.button("🚀 Create My Financial Reflection", type="primary"):
                 
                 # Progress tracking
                 progress_bar = st.progress(0)
@@ -695,6 +759,11 @@ def main():
                             st.error(f"❌ Error sending to Notion: {str(e)}")
                 
                 st.balloons()
+            else:
+                # Show what's missing and how to fix it
+                missing = [col for col in required_columns if col not in df.columns]
+                st.error(f"❌ Cannot analyze data. Missing columns: {', '.join(missing)}")
+                st.info("👆 Use the Manual Column Mapping section above to fix this!")
         else:
             st.error("No valid transaction data found in uploaded files. Please check your file format.")
     
